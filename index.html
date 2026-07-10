@@ -196,6 +196,13 @@ Promise.all([
         return 16 + Math.pow(v/100, 1.8) * 44; // Slightly larger for readability
     }
 
+    // Sort by search volume ascending so larger cheeses are drawn last (on top)
+    coordsData.sort((a, b) => {
+        let svA = pop.get(a.name) || 1;
+        let svB = pop.get(b.name) || 1;
+        return svA - svB;
+    });
+
     labels = root.selectAll("text")
         .data(coordsData)
         .join("text")
