@@ -202,7 +202,7 @@ Promise.all([
         .attr("class", "label")
         .text(d => d.name)
         .attr("font-size", d => {
-            let sv = d.attrs.search_volume || 1;
+            let sv = pop.get(d.name) || 1;
             let v = Math.max(1, Math.min(100, sv));
             return 16 + Math.pow(v/100, 1.8) * 44;
         })
