@@ -200,8 +200,9 @@ Promise.all([
         .attr("class", "label")
         .text(d => d.name)
         .attr("font-size", d => {
-            let sv = d.attrs.search_volume;
-            return (sv > 0) ? Math.max(9, Math.min(22, 10 + (sv / 100) * 12)) : 9;
+            let sv = d.attrs.search_volume || 1;
+            let v = Math.max(1, Math.min(100, sv));
+            return 16 + Math.pow(v/100, 1.8) * 44;
         })
         .attr("fill", d => d.color)
         .on("click", (e, d) => {
