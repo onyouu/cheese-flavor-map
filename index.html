@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Cheese Flavor Map</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+body{margin:0;overflow:hidden;font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;background:#0d0d12;color:#eee;}
+svg{width:100vw;height:100vh;display:block;}
+
+/* Readability - Add stroke/halo to text */
+.label{
+    cursor:pointer;
+    user-select:none;
+    text-anchor:middle;
+    dominant-baseline:middle;
+    paint-order:stroke;
+    stroke:rgba(10,10,15,0.9);
+    stroke-width:4px;
+    stroke-linejoin:round;
+    transition:fill 0.3s;
+}
+
+/* UI Elements */
+.card{position:absolute;right:20px;top:20px;width:340px;max-height:85vh;background:rgba(20,20,24,0.95);border:1px solid #333;border-radius:12px;display:none;box-shadow:0 12px 30px rgba(0,0,0,.6);z-index:100;backdrop-filter:blur(10px);display:flex;flex-direction:column;}
+.card-header{padding:12px 16px;background:#1a1a20;border-bottom:1px solid #333;border-radius:12px 12px 0 0;cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;}
+.card-header:active{cursor:grabbing;}
+.card-body{padding:16px;overflow-y:auto;flex:1;}
+.close-btn{cursor:pointer;color:#888;font-weight:bold;font-size:16px;}
+.close-btn:hover{color:#fff;}
+.card h2{margin:0 0 10px 0;font-size:22px;color:#fff;}
+.card p{font-size:13px;line-height:1.5;color:#bbb;margin-bottom:15px;}
+hr{border:none;border-top:1px solid #333;margin:15px 0;}
+
+.search-container{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);z-index:50;}
+.search-input{background:transparent;border:none;border-bottom:2px solid #555;color:#fff;font-size:18px;padding:8px;width:300px;text-align:center;outline:none;transition:border-color 0.3s;font-family:inherit;}
+.search-input:focus{border-bottom-color:#ffb300;}
+
+/* Dynamic Filters */
+.filters-panel{position:absolute;top:20px;left:20px;z-index:50;background:rgba(20,20,24,0.85);backdrop-filter:blur(10px);padding:15px;border-radius:12px;border:1px solid #333;max-width:300px;max-height:80vh;display:flex;flex-direction:column;gap:12px;}
+.filter-title{color:#777;font-size:11px;text-transform:uppercase;letter-spacing:1px;}
+.filter-select{background:#222;color:#eee;border:1px solid #444;padding:6px 10px;border-radius:6px;outline:none;font-family:inherit;font-size:13px;width:100%;cursor:pointer;}
+#filter-buttons{display:flex;flex-wrap:wrap;gap:6px;overflow-y:auto;max-height:400px;}
+.filter-btn{background:#222;border:1px solid #333;color:#999;border-radius:20px;padding:4px 10px;font-size:11px;cursor:pointer;transition:all 0.2s;}
+.filter-btn:hover{background:#333;color:#ddd;}
+.filter-btn.active{background:#ffb300;color:#111;border-color:#ffb300;font-weight:bold;}
+</style>
+</head>
+
+<body>
+
+<div class="filters-panel">
+    <div>
+        <div class="filter-title" style="margin-bottom:6px;">Group By Attribute</div>
+        <select id="filter-category" class="filter-select">
+            <option value="none">None (No Colors)</option>
+            <option value="type">Type (Hard, Soft...)</option>
+            <option value="milk">Milk (Cow, Goat...)</option>
+            <option value="country">Country</option>
+            <option value="texture">Texture</option>
+        </select>
+    </div>
+    <div id="filter-buttons"></div>
+</div>
+
+<div class="search-container">
+    <input type="text" id="search-input" class="search-input" placeholder="Find a cheese..." list="cheese-list" autocomplete="off">
+    <datalist id="cheese-list"></datalist>
+</div>
+
+<div class="card" id="detail-card">
+    <div class="card-header" id="card-header">
+        <span style="font-size:13px;color:#888;letter-spacing:1px;text-transform:uppercase">Characteristics</span>
+        <span class="close-btn" id="close-btn">✕</span>
+    </div>
+    <div class="card-body" id="card-body"></div>
+</div>
+
+<svg></svg>
+
+<script>
+const svg = d3.select("svg");
+const root = svg.append("g");
+const w = innerWidth;
+const h = innerHeight;
+
+let labels;
+let coordsData = [];
+let pop;
+let currentZoom = 1;
+let currentFilter = "all";
+let activeCheese = null;
+let hoveredCheese = null;
+
+// Dynamic attribute maps
+const attrDataMaps = {
+    type: new Map(),
+    milk: new Map(),
+    country: new Map(),
+    texture: new Map()
+};
+
+// Colors for top categories
+const typeColors = ['#e8c94d', '#5db8e0', '#6cc9a1', '#d4a84b', '#7dd3c0', '#6e8cde', '#c49ddb', '#ff7a59', '#ff9e9d', '#b5d596'];
+
+const zoom = d3.zoom()
+    .scaleExtent([0.1, 25])
+    .on("zoom", e => {
+        currentZoom = e.transform.k;
+        root.attr("transform", e.transform);
+    });
+
+svg.call(zoom);
+svg.call(zoom.transform, d3.zoomIdentity.translate(w/2, h/2));
+
+function extractAttribute(text, prefix, regexList) {
+    if(!text) return "other";
+    let t = text.replace(new RegExp(prefix, "i"), "").toLowerCase();
+    for(let rx of regexList) {
+        if(t.includes(rx)) return rx;
+    }
+    return t.split(",")[0].trim() || "other";
+}
+
+Promise.all([
+    d3.json("umap_coordinates.json"),
+    d3.json("all_cheeses_with_search.json"),
+    d3.json("cheese_dataset_v2.json"),
+    d3.json("cheese_summary_crawled.json")
+]).then(([coordsRaw, search, dataV2, summaryData]) => {
+
+    window.globalDataV2 = dataV2;
+    window.globalSummaryData = summaryData;
+
+    pop = new Map(search.map(d => [d.name, Math.max(1, Number(d.search_volume)||1)]));
+    const datalist = document.getElementById("cheese-list");
+    let optionsHtml = '';
+
+    coordsData = Object.entries(coordsRaw).map(([name, c]) => {
+        optionsHtml += `<option value="${name}">`;
+        const summary = summaryData[name] || {};
+        
+        // Parse attributes for grouping
+        let typeVal = extractAttribute(summary.summary_moisture_and_type, "Type:", ["hard", "semi-hard", "soft", "semi-soft", "fresh", "blue"]);
+        let milkVal = extractAttribute(summary.summary_milk, "Made from", ["cow", "goat", "sheep", "water buffalo", "buffalo", "vegan", "plant-based"]);
+        let countryVal = extractAttribute(summary.summary_country, "Country of origin:", []).split(' ')[0]; // just take first word of country
+        let textureVal = extractAttribute(summary.summary_texture, "Texture:", ["creamy", "crumbly", "firm", "smooth", "soft", "springy", "flaky"]);
+
+        return {
+            name,
+            x: c.x,
+            y: c.y,
+            attrs: {
+                type: typeVal,
+                milk: milkVal,
+                country: countryVal,
+                texture: textureVal
+            }
+        };
+    });
+    datalist.innerHTML = optionsHtml;
+
+    // Populate attribute maps with counts
+    coordsData.forEach(d => {
+        for(let key in attrDataMaps) {
+            let val = d.attrs[key];
+            if(val && val !== "other" && val.length > 2) {
+                attrDataMaps[key].set(val, (attrDataMaps[key].get(val) || 0) + 1);
+            }
+        }
+    });
+
+    window.globalColorMap = {};
+    for(let cat in attrDataMaps) {
+        window.globalColorMap[cat] = new Map();
+        const sorted = [...attrDataMaps[cat].entries()].sort((a,b) => b[1] - a[1]);
+        sorted.forEach((item, i) => {
+            window.globalColorMap[cat].set(item[0], typeColors[i % typeColors.length]);
+        });
+    }
+
+    const sx = d3.scaleLinear().domain(d3.extent(coordsData, d=>d.x)).range([-4000, 4000]);
+    const sy = d3.scaleLinear().domain(d3.extent(coordsData, d=>d.y)).range([4000, -4000]);
+
+    coordsData.forEach(d => {
+        d.x = sx(d.x);
+        d.y = sy(d.y);
+        d.color = "#aaa"; // Default color
+    });
+
+    function fontSize(name){
+        let v = Math.max(1, Math.min(100, pop.get(name)||1));
+        return 16 + Math.pow(v/100, 1.8) * 44; // Slightly larger for readability
+    }
+
+    labels = root.selectAll("text")
+        .data(coordsData)
+        .join("text")
+        .attr("class", "label")
+        .attr("font-size", d => fontSize(d.name))
+        .text(d => d.name)
+        .on("click", (e, d) => {
+            e.stopPropagation();
+            activeCheese = d;
+            updateLabelsVisibility();
+            showCard(d);
+        })
+        .on("mouseenter", (e, d) => {
+            hoveredCheese = d;
+            updateLabelsVisibility();
+        })
+        .on("mouseleave", () => {
+            hoveredCheese = null;
+            updateLabelsVisibility();
+        });
+
+    // Initial positioning
+    labels.attr("x", d=>d.x).attr("y", d=>d.y);
+
+    // Initial Filter Setup
+    setupFilters("none");
+
+    // Background click resets
+    svg.on("click", (e) => {
+        document.getElementById("detail-card").style.display = "none";
+        activeCheese = null;
+        updateLabelsVisibility();
+    });
+
+    // Filter Category Change
+    document.getElementById("filter-category").addEventListener("change", e => {
+        setupFilters(e.target.value);
+    });
+
+    // Searching
+    document.getElementById("search-input").addEventListener("change", e => {
+        const val = e.target.value.toLowerCase();
+        const target = coordsData.find(d => d.name.toLowerCase() === val);
+        if(target){
+            const targetZoom = 6;
+            const tx = w/2 - target.x * targetZoom;
+            const ty = h/2 - target.y * targetZoom;
+            svg.transition().duration(1000).call(
+                zoom.transform,
+                d3.zoomIdentity.translate(tx, ty).scale(targetZoom)
+            );
+            activeCheese = target;
+            showCard(target);
+            updateLabelsVisibility();
+            e.target.value = "";
+            e.target.blur();
+        }
+    });
+
+    function setupFilters(category) {
+        const container = document.getElementById("filter-buttons");
+        
+        if (category === "none") {
+            container.innerHTML = "";
+            coordsData.forEach(d => d.color = "#aaa");
+            currentFilter = "all";
+            updateLabelsVisibility();
+            return;
+        }
+
+        container.innerHTML = `<button class="filter-btn active" data-val="all" style="background:#eee;color:#111;border-color:#eee;">All</button>`;
+        
+        // Get top 10 attributes in this category
+        const sorted = [...attrDataMaps[category].entries()].sort((a,b) => b[1] - a[1]).slice(0, 15);
+        
+        // Assign colors from global map
+        sorted.forEach((item) => {
+            const color = window.globalColorMap[category].get(item[0]);
+            container.innerHTML += `<button class="filter-btn" data-val="${item[0]}" data-color="${color}" style="color:${color}; border-color:${color}55;">${item[0]} (${item[1]})</button>`;
+        });
+
+        // Update colors on data
+        coordsData.forEach(d => {
+            let v = d.attrs[category];
+            d.color = window.globalColorMap[category].get(v) || "#777";
+        });
+
+        currentFilter = "all";
+        updateLabelsVisibility();
+
+        // Attach listeners
+        container.querySelectorAll(".filter-btn").forEach(btn => {
+            btn.addEventListener("click", e => {
+                container.querySelectorAll(".filter-btn").forEach(b => {
+                    b.classList.remove("active");
+                    if(b.dataset.val !== "all") {
+                        b.style.background = "#222";
+                        b.style.color = b.dataset.color;
+                    } else {
+                        b.style.background = "#222";
+                        b.style.color = "#999";
+                        b.style.borderColor = "#333";
+                    }
+                });
+                
+                const target = e.target;
+                target.classList.add("active");
+                if(target.dataset.val !== "all") {
+                    target.style.background = target.dataset.color;
+                    target.style.color = "#111";
+                } else {
+                    target.style.background = "#eee";
+                    target.style.color = "#111";
+                    target.style.borderColor = "#eee";
+                }
+                
+                currentFilter = target.dataset.val;
+                updateLabelsVisibility();
+            });
+            
+            // Add custom hover effect for dynamic colors
+            btn.addEventListener("mouseenter", e => {
+                if(!e.target.classList.contains("active")) {
+                    e.target.style.background = "#333";
+                }
+            });
+            btn.addEventListener("mouseleave", e => {
+                if(!e.target.classList.contains("active")) {
+                    e.target.style.background = "#222";
+                }
+            });
+        });
+    }
+
+    function updateLabelsVisibility() {
+        if(!labels) return;
+        const currentCategory = document.getElementById("filter-category").value;
+
+        labels
+            .attr("fill", d => {
+                if(activeCheese && activeCheese.name === d.name) return "#fff";
+                if(hoveredCheese && hoveredCheese.name === d.name) return "#fff";
+                return d.color;
+            })
+            .attr("font-weight", d => ((activeCheese && activeCheese.name === d.name) || (hoveredCheese && hoveredCheese.name === d.name)) ? "bold" : "normal")
+            .attr("opacity", d => {
+                // Filter logic
+                if(currentFilter !== "all" && d.attrs[currentCategory] !== currentFilter) return 0.05;
+                if(activeCheese && currentFilter === "all" && activeCheese.name !== d.name) return 0.15;
+                
+                return 1; // Default
+            });
+    }
+    
+    // Draggable Card Logic
+    const cardEl = document.getElementById("detail-card");
+    const headerEl = document.getElementById("card-header");
+    const closeBtn = document.getElementById("close-btn");
+
+    let isCardDragging = false;
+    let dragStartX, dragStartY, cardStartX, cardStartY;
+
+    headerEl.addEventListener("mousedown", e => {
+        if(e.target === closeBtn) return;
+        isCardDragging = true;
+        dragStartX = e.clientX; dragStartY = e.clientY;
+        const rect = cardEl.getBoundingClientRect();
+        cardStartX = rect.left; cardStartY = rect.top;
+        cardEl.style.right = 'auto'; cardEl.style.bottom = 'auto';
+        cardEl.style.left = cardStartX + "px"; cardEl.style.top = cardStartY + "px";
+    });
+
+    window.addEventListener("mousemove", e => {
+        if (!isCardDragging) return;
+        let newLeft = cardStartX + e.clientX - dragStartX;
+        let newTop = cardStartY + e.clientY - dragStartY;
+        if(newLeft < 0) newLeft = 0; if(newTop < 0) newTop = 0;
+        if(newLeft + cardEl.offsetWidth > window.innerWidth) newLeft = window.innerWidth - cardEl.offsetWidth;
+        if(newTop + cardEl.offsetHeight > window.innerHeight) newTop = window.innerHeight - cardEl.offsetHeight;
+        cardEl.style.left = newLeft + "px"; cardEl.style.top = newTop + "px";
+    });
+
+    window.addEventListener("mouseup", () => { isCardDragging = false; });
+
+    closeBtn.addEventListener("click", () => {
+        cardEl.style.display = "none";
+        activeCheese = null;
+        updateLabelsVisibility();
+    });
+});
+
+function showCard(d){
+    const c = window.globalDataV2[d.name];
+    const summary = window.globalSummaryData[d.name] || {};
+    if(!c && Object.keys(summary).length === 0) return;
+
+    const rawDesc = c?.raw_description || "";
+    const card = document.getElementById("detail-card");
+    const body = document.getElementById("card-body");
+    
+    if(card.style.display !== "flex") {
+        card.style.display = "flex";
+        card.style.left = "auto";
+        card.style.right = "20px";
+        card.style.top = "20px";
+    }
+
+    let summaryHtml = '';
+    const iconMap = {
+        'summary_milk': '🥛',
+        'summary_country': '🌍',
+        'summary_moisture_and_type': '🧀',
+        'summary_texture': '🔪',
+        'summary_tint': '🎨',
+        'summary_smell': '👃',
+        'summary_synonym': '📝'
+    };
+
+    const attrKeys = {
+        'summary_moisture_and_type': 'type',
+        'summary_milk': 'milk',
+        'summary_country': 'country',
+        'summary_texture': 'texture'
+    };
+
+    let targetData = coordsData.find(x => x.name === d.name);
+
+    for (const [key, value] of Object.entries(summary)) {
+        if (!value) continue;
+        const icon = iconMap[key] || '🔹';
+        
+        let textColor = "#ddd";
+        if (targetData && attrKeys[key]) {
+            let cat = attrKeys[key];
+            let parsedVal = targetData.attrs[cat];
+            if (window.globalColorMap[cat] && window.globalColorMap[cat].has(parsedVal)) {
+                textColor = window.globalColorMap[cat].get(parsedVal);
+            }
+        }
+
+        summaryHtml += `<div style="margin-bottom: 8px; font-size: 13px; color: ${textColor};">
+            <span style="margin-right: 6px;">${icon}</span>${value}
+        </div>`;
+    }
+
+    body.innerHTML = `
+        <h2>${d.name}</h2>
+        <p>${rawDesc.replace(/\n/g,"<br>")}</p>
+        <hr>
+        ${summaryHtml}
+    `;
+}
+</script>
+
+</body>
+</html>

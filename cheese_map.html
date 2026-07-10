@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Cheese Semantic Map</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+body{margin:0;overflow:hidden;font-family:Arial,sans-serif;background:#fafafa}
+svg{width:100vw;height:100vh;display:block}
+.label{cursor:pointer;user-select:none;text-anchor:middle;dominant-baseline:middle;fill:#222}
+.card{position:absolute;right:20px;top:20px;width:360px;max-height:85vh;overflow:auto;background:#fff;border-radius:12px;padding:16px;display:none;box-shadow:0 8px 25px rgba(0,0,0,.25)}
+.tag{display:inline-block;background:#eee;border-radius:20px;padding:3px 8px;margin:2px;font-size:12px}
+</style>
+</head>
+
+<body>
+
+<div class="card"></div>
+<svg></svg>
+
+<script>
+
+const svg=d3.select("svg");
+const root=svg.append("g");
+const card=d3.select(".card");
+
+const w=innerWidth;
+const h=innerHeight;
+
+let labels;
+let pop;
+let sim;
+let currentZoom=1;
+
+const zoom=d3.zoom()
+.scaleExtent([0.05,20])
+.on("zoom",e=>{
+
+currentZoom=e.transform.k;
+
+root.attr(
+"transform",
+e.transform
+);
+
+if(sim){
+
+sim.force(
+"collide",
+d3.forceCollide(
+currentZoom>2 ? 10 : 5
+)
+);
+
+sim.alpha(.3).restart();
+
+}
+
+});
+
+svg.call(zoom);
+
+svg.call(
+zoom.transform,
+d3.zoomIdentity.translate(w/2,h/2)
+);
+
+
+
+Promise.all([
+d3.json("cheese_coordinates.json"),
+d3.json("all_cheeses_with_search.json"),
+d3.json("cheese_dataset_fixed.json")
+])
+.then(([coords,search,data])=>{
+coordsData=coords;
+
+pop=new Map(
+search.map(d=>[
+d.name,
+Math.max(1,Number(d.search_volume)||1)
+])
+);
+
+
+
+const sx=d3.scaleLinear()
+.domain(d3.extent(coords,d=>d.x))
+.range([-5000,5000]);
+
+
+const sy=d3.scaleLinear()
+.domain(d3.extent(coords,d=>d.y))
+.range([5000,-5000]);
+
+
+
+coords.forEach(d=>{
+d.homeX=sx(d.x);
+d.homeY=sy(d.y);
+d.x=d.homeX;
+d.y=d.homeY;
+});
+
+
+
+// 검색량 -> 글자 크기
+
+function fontSize(name){
+
+let v=Math.max(
+1,
+Math.min(
+100,
+pop.get(name)||1
+)
+);
+
+return 20+Math.pow(v/100,1.8)*38;
+
+}
+
+
+
+// force
+
+sim=d3.forceSimulation(coords)
+
+.force(
+"x",
+d3.forceX(d=>d.homeX).strength(.03)
+)
+
+.force(
+"y",
+d3.forceY(d=>d.homeY).strength(.03)
+)
+
+.force(
+"collide",
+d3.forceCollide(5)
+)
+
+.alphaDecay(.05);
+
+
+
+const halo=root.selectAll("circle")
+.data(coords)
+.join("circle")
+.attr("class","halo")
+.attr("r",0)
+.attr("fill","none")
+.attr("stroke","#ffb300")
+.attr("stroke-width",3)
+.attr("opacity",0);
+
+// text
+
+labels=root.selectAll("text")
+.data(coords)
+.join("text")
+
+.attr("class","label")
+
+.attr(
+"font-size",
+d=>fontSize(d.name)
+)
+
+.attr(
+"opacity",
+d=>{
+let v=pop.get(d.name)||1;
+return v>=60?1:0.55;
+}
+)
+
+.text(d=>d.name)
+
+.on("click",(e,d)=>{
+
+e.stopPropagation();
+
+labels
+.attr("fill","#222")
+.attr("font-weight","normal")
+.attr("opacity",0.55);
+
+
+d3.select(e.currentTarget)
+.attr("fill","crimson")
+.attr("font-weight","bold")
+.attr("opacity",1);
+
+
+showCard(d);
+
+});
+
+
+
+// 위치 업데이트
+
+sim.on("tick",()=>{
+
+labels
+.attr("x",d=>d.x)
+.attr("y",d=>d.y);
+
+
+halo
+.attr("cx",d=>d.x)
+.attr("cy",d=>d.y);
+
+});
+
+
+
+
+function tags(arr){
+
+if(!arr||!arr.length)return "-";
+
+return arr.map(
+v=>`<span class="tag">${v}</span>`
+).join("");
+
+}
+
+function showCard(d){
+
+const c=data[d.name];
+
+if(!c)return;
+
+
+card
+.style("display","block")
+.html(`
+
+<h2>${d.name}</h2>
+
+<p>
+${(c.raw_description||"").replace(/\n/g,"<br>")}
+</p>
+
+<hr>
+
+<b>Flavor</b><br>
+${tags(c.taste?.flavor)}
+
+<br><br>
+
+<b>Aroma</b><br>
+${tags(c.taste?.aroma)}
+
+<br><br>
+
+<b>Texture</b><br>
+${tags(c.taste?.texture)}
+
+<br><br>
+
+<a href="${c.url}" target="_blank">
+Cheese.com
+</a>
+
+`);
+
+}
+
+
+
+svg.on("click",()=>{
+
+card.style("display","none");
+
+
+labels
+.attr("font-weight","normal")
+.attr("fill",d=>{
+
+let v=pop.get(d.name)||1;
+
+return v>=60 ? "#ff9800" : "#222";
+
+})
+.attr("opacity",d=>{
+
+let v=pop.get(d.name)||1;
+
+return v>=60 ? 1 : 0.55;
+
+});
+
+
+halo
+.attr("opacity",0);
+
+
+});
+
+
+
+document.addEventListener("keydown",e=>{
+
+if(e.key==="Escape")
+card.style("display","none");
+
+});
+
+
+});
+
+
+</script>
+
+</body>
+</html>

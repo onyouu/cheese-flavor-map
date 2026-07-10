@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="UTF-8">
+
+<title>Cheese Graph</title>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+
+body {
+    margin:0;
+    overflow:hidden;
+}
+
+svg {
+    width:100vw;
+    height:100vh;
+    cursor:grab;
+}
+
+svg:active {
+    cursor:grabbing;
+}
+
+
+.node {
+    stroke:white;
+    stroke-width:1.5px;
+    cursor:pointer;
+}
+
+
+.link {
+    stroke:#999;
+    stroke-opacity:0.45;
+}
+
+
+.label {
+    font-size:12px;
+    pointer-events:none;
+    user-select:none;
+}
+
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<svg></svg>
+
+
+
+<script>
+
+
+const svg = d3.select("svg");
+
+
+const width = window.innerWidth;
+const height = window.innerHeight;
+
+
+
+svg
+
+.attr("width",width)
+
+.attr("height",height);
+
+
+
+
+// 그래프 전체 그룹
+
+const container = svg.append("g");
+
+
+
+
+// zoom + pan
+
+const zoom = d3.zoom()
+
+.scaleExtent([0.05,10])
+
+.on("zoom",event=>{
+
+
+    container.attr(
+
+        "transform",
+
+        event.transform
+
+    );
+
+
+});
+
+
+
+svg.call(zoom);
+
+
+
+
+
+
+
+
+
+d3.json("graph.json")
+
+
+.then(graphData=>{
+
+
+
+    let nodeSet = new Set();
+
+    let links=[];
+
+    let edgeSet=new Set();
+
+
+
+
+
+
+    // JSON 분석
+
+
+    Object.keys(graphData || {})
+
+    .forEach(cheese=>{
+
+
+
+        nodeSet.add(cheese);
+
+
+
+        let substitutes =
+        graphData[cheese];
+
+
+
+        if(!substitutes ||
+           substitutes.length===0)
+
+            return;
+
+
+
+
+
+        substitutes.forEach(sub=>{
+
+
+            if(!sub)
+                return;
+
+
+
+            nodeSet.add(sub);
+
+
+
+            if(cheese===sub)
+                return;
+
+
+
+
+            let edge =
+
+            [cheese,sub]
+
+            .sort()
+
+            .join("-");
+
+
+
+
+            if(!edgeSet.has(edge)){
+
+
+                edgeSet.add(edge);
+
+
+                links.push({
+
+                    source:cheese,
+
+                    target:sub
+
+                });
+
+
+            }
+
+
+        });
+
+
+
+    });
+
+
+
+
+
+
+    let nodes =
+
+    Array.from(nodeSet)
+
+    .map(name=>({
+
+        id:name
+
+    }));
+
+
+
+
+
+
+    console.log(
+        "nodes:",
+        nodes.length
+    );
+
+
+    console.log(
+        "links:",
+        links.length
+    );
+
+
+
+
+
+
+
+
+    // simulation
+
+
+    const simulation = d3.forceSimulation(nodes)
+
+
+    .force(
+
+        "link",
+
+        d3.forceLink(links)
+
+        .id(d=>d.id)
+
+        .distance(130)
+
+    )
+
+
+    .force(
+
+        "charge",
+
+        d3.forceManyBody()
+
+        .strength(-300)
+
+    )
+
+
+    .force(
+
+        "center",
+
+        d3.forceCenter(
+
+            width/2,
+
+            height/2
+
+        )
+
+    )
+
+
+    .force(
+
+        "collision",
+
+        d3.forceCollide()
+
+        .radius(35)
+
+    );
+
+
+
+
+
+
+
+
+
+    // link
+
+
+    const link = container.append("g")
+
+
+    .selectAll("line")
+
+
+    .data(links)
+
+
+    .join("line")
+
+
+    .attr(
+        "class",
+        "link"
+    );
+
+
+
+
+
+
+
+
+
+    // node
+
+
+    const node = container.append("g")
+
+
+    .selectAll("circle")
+
+
+    .data(nodes)
+
+
+    .join("circle")
+
+
+
+    .attr(
+        "class",
+        "node"
+    )
+
+
+
+    .attr(
+
+        "r",
+
+        d=>{
+
+
+            let count =
+
+            links.filter(
+
+                l=>
+
+                l.source.id===d.id ||
+
+                l.target.id===d.id
+
+            ).length;
+
+
+
+            return Math.min(
+
+                7 + count*2,
+
+                35
+
+            );
+
+
+        }
+
+    )
+
+
+
+    .attr(
+
+        "fill",
+
+        "#f4b400"
+
+    )
+
+
+    .call(
+        drag(simulation)
+    );
+
+
+
+
+
+
+
+
+
+    // label
+
+
+    const label = container.append("g")
+
+
+    .selectAll("text")
+
+
+    .data(nodes)
+
+
+    .join("text")
+
+
+    .attr(
+        "class",
+        "label"
+    )
+
+
+    .text(
+        d=>d.id
+    );
+
+
+
+
+
+
+
+
+
+    // tick
+
+
+    simulation.on(
+
+        "tick",
+
+        ()=>{
+
+
+
+            link
+
+            .attr(
+                "x1",
+                d=>d.source.x
+            )
+
+            .attr(
+                "y1",
+                d=>d.source.y
+            )
+
+
+            .attr(
+                "x2",
+                d=>d.target.x
+            )
+
+
+            .attr(
+                "y2",
+                d=>d.target.y
+            );
+
+
+
+
+
+
+
+            node
+
+            .attr(
+                "cx",
+                d=>d.x
+            )
+
+
+            .attr(
+                "cy",
+                d=>d.y
+            );
+
+
+
+
+
+
+
+
+            label
+
+            .attr(
+                "x",
+                d=>d.x+12
+            )
+
+
+            .attr(
+                "y",
+                d=>d.y+5
+            );
+
+
+
+        }
+
+
+    );
+
+
+
+
+
+
+
+})
+
+
+
+.catch(error=>{
+
+
+    console.error(
+
+        "graph.json error:",
+
+        error
+
+    );
+
+
+});
+
+
+
+
+
+
+
+
+
+
+
+// node drag
+
+
+function drag(simulation){
+
+
+
+return d3.drag()
+
+
+
+.on(
+
+"start",
+
+(event,d)=>{
+
+
+    // zoom 이벤트와 충돌 방지
+
+    event.sourceEvent.stopPropagation();
+
+
+
+    if(!event.active)
+
+        simulation
+
+        .alphaTarget(0.3)
+
+        .restart();
+
+
+
+    d.fx=d.x;
+
+    d.fy=d.y;
+
+
+
+}
+
+
+
+)
+
+
+
+.on(
+
+"drag",
+
+(event,d)=>{
+
+
+    d.fx=event.x;
+
+    d.fy=event.y;
+
+
+
+}
+
+
+
+)
+
+
+
+.on(
+
+"end",
+
+(event,d)=>{
+
+
+    simulation
+
+    .alphaTarget(0);
+
+
+
+    // 위치 유지
+
+    d.fx=d.x;
+
+    d.fy=d.y;
+
+
+
+}
+
+
+
+);
+
+
+
+}
+
+
+
+</script>
+
+
+</body>
+
+</html>
