@@ -124,7 +124,7 @@ function extractAttribute(text, prefix, regexList) {
 }
 
 Promise.all([
-    d3.json("umap_coordinates.json"),
+    d3.json("umap_coordinates_relaxed.json"),
     d3.json("all_cheeses_with_search.json"),
     d3.json("cheese_dataset_v2.json"),
     d3.json("cheese_summary_crawled.json")
@@ -439,12 +439,42 @@ function showCard(d){
         </div>`;
     }
 
+    let descHtml = "";
+    if (rawDesc.length > 150) {
+        let shortText = rawDesc.substring(0, 150) + "...";
+        descHtml = `
+            <p id="desc-short" style="margin-bottom: 5px;">${shortText.replace(/\n/g,"<br>")}</p>
+            <p id="desc-full" style="display:none; margin-bottom: 5px;">${rawDesc.replace(/\n/g,"<br>")}</p>
+            <a href="#" id="read-more-btn" style="color:#5db8e0; text-decoration:none; font-size: 11px; font-weight: bold; margin-bottom: 10px; display: inline-block;">[Learn More]</a>
+        `;
+    } else {
+        descHtml = `<p style="margin-bottom: 10px;">${rawDesc.replace(/\n/g,"<br>")}</p>`;
+    }
+
     body.innerHTML = `
         <h2>${d.name}</h2>
-        <p>${rawDesc.replace(/\n/g,"<br>")}</p>
+        ${descHtml}
         <hr>
         ${summaryHtml}
     `;
+
+    const btn = document.getElementById("read-more-btn");
+    if(btn) {
+        btn.addEventListener("click", function(e) {
+            e.preventDefault();
+            const shortDesc = document.getElementById("desc-short");
+            const fullDesc = document.getElementById("desc-full");
+            if(fullDesc.style.display === "none") {
+                fullDesc.style.display = "block";
+                shortDesc.style.display = "none";
+                this.innerText = "[Show Less]";
+            } else {
+                fullDesc.style.display = "none";
+                shortDesc.style.display = "block";
+                this.innerText = "[Learn More]";
+            }
+        });
+    }
 }
 </script>
 
