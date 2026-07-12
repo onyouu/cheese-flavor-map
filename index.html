@@ -25,14 +25,14 @@ svg{width:100vw;height:100vh;display:block;}
 }
 
 /* UI Elements */
-.card{position:absolute;right:20px;top:20px;width:340px;max-height:85vh;background:rgba(20,20,24,0.95);border:1px solid #333;border-radius:12px;display:none;box-shadow:0 12px 30px rgba(0,0,0,.6);z-index:100;backdrop-filter:blur(10px);display:flex;flex-direction:column;}
+.card{position:absolute;right:20px;top:20px;width:360px;max-height:85vh;background:rgba(20,20,24,0.95);border:1px solid #333;border-radius:12px;display:none;box-shadow:0 12px 30px rgba(0,0,0,.6);z-index:100;backdrop-filter:blur(10px);display:flex;flex-direction:column;}
 .card-header{padding:12px 16px;background:#1a1a20;border-bottom:1px solid #333;border-radius:12px 12px 0 0;cursor:grab;display:flex;justify-content:space-between;align-items:center;user-select:none;}
 .card-header:active{cursor:grabbing;}
 .card-body{padding:16px;overflow-y:auto;flex:1;}
 .close-btn{cursor:pointer;color:#888;font-weight:bold;font-size:16px;}
 .close-btn:hover{color:#fff;}
-.card h2{margin:0 0 10px 0;font-size:22px;color:#fff;}
-.card p{font-size:13px;line-height:1.5;color:#bbb;margin-bottom:15px;}
+.card h2{margin:0 0 10px 0;font-size:24px;color:#fff;letter-spacing:0.5px;}
+.card p{font-size:14px;line-height:1.6;color:#dcdcdc;margin-bottom:15px;letter-spacing:0.2px;}
 hr{border:none;border-top:1px solid #333;margin:15px 0;}
 
 .search-container{position:absolute;bottom:30px;left:50%;transform:translateX(-50%);z-index:50;}
@@ -449,9 +449,24 @@ function showCard(d){
             }
         }
 
-        summaryHtml += `<div style="margin-bottom: 8px; font-size: 13px; color: ${textColor};">
-            <span style="margin-right: 6px;">${icon}</span>${value}
-        </div>`;
+        let label = value;
+        let text = "";
+        let splitIdx = value.indexOf(':');
+        
+        if (splitIdx !== -1) {
+            label = value.substring(0, splitIdx + 1);
+            text = value.substring(splitIdx + 1);
+            summaryHtml += `<div style="margin-bottom: 10px; font-size: 13.5px; color: ${textColor}; display: flex; align-items: baseline;">
+                <span style="margin-right: 8px; opacity: 0.6; font-size: 14px;">${icon}</span>
+                <span style="font-weight: 600; margin-right: 6px; opacity: 0.9;">${label}</span>
+                <span style="opacity: 0.85;">${text}</span>
+            </div>`;
+        } else {
+            summaryHtml += `<div style="margin-bottom: 10px; font-size: 13.5px; color: ${textColor}; display: flex; align-items: baseline;">
+                <span style="margin-right: 8px; opacity: 0.6; font-size: 14px;">${icon}</span>
+                <span style="opacity: 0.85;">${value}</span>
+            </div>`;
+        }
     }
 
     let descHtml = "";
