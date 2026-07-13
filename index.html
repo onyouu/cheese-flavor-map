@@ -218,8 +218,9 @@ Promise.all([
         .on("click", (e, d) => {
             e.stopPropagation();
             activeCheese = d;
-            updateLabelsVisibility();
+            history.pushState(null, null, '#' + encodeURIComponent(d.name));
             showCard(d);
+            updateLabelsVisibility();
         })
         .on("mouseenter", (e, d) => {
             hoveredCheese = d;
@@ -398,6 +399,26 @@ Promise.all([
         activeCheese = null;
         updateLabelsVisibility();
     });
+
+    // Deep linking check after data loads
+    const initialHash = decodeURIComponent(window.location.hash.substring(1));
+    if (initialHash) {
+        let tObj = coordsData.find(x => x.name === initialHash);
+        if (tObj) {
+            setTimeout(() => {
+                const targetZoom = 6;
+                const tx = w/2 - tObj.x * targetZoom;
+                const ty = h/2 - tObj.y * targetZoom;
+                svg.transition().duration(1000).call(
+                    zoom.transform,
+                    d3.zoomIdentity.translate(tx, ty).scale(targetZoom)
+                );
+                activeCheese = tObj;
+                showCard(tObj);
+                updateMapStyles();
+            }, 300); // slight delay to ensure rendering completes
+        }
+    }
 });
 
 function showCard(d){
@@ -481,11 +502,42 @@ function showCard(d){
         descHtml = `<p style="margin-bottom: 10px;">${rawDesc.replace(/\n/g,"<br>")}</p>`;
     }
 
+    let similarCheesesHtml = "";
+    if (targetData) {
+        let distances = coordsData.filter(x => x.name !== d.name).map(x => {
+            let dx = x.x - targetData.x;
+            let dy = x.y - targetData.y;
+            return { name: x.name, dist: dx*dx + dy*dy, dObj: x };
+        });
+        distances.sort((a, b) => a.dist - b.dist);
+        let top3 = distances.slice(0, 3);
+        
+        let simList = top3.map(item => `<span class="sim-btn" data-name="${item.name.replace(/"/g, '&quot;')}" style="display:inline-block; margin:3px 3px 3px 0; padding:6px 10px; background:#333; color:#ffb300; border-radius:20px; font-size:11px; cursor:pointer; font-weight:bold; transition:0.2s; border: 1px solid #555;">${item.name}</span>`).join('');
+        
+        similarCheesesHtml = `
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed #444;">
+                <p style="margin:0 0 8px 0; font-size:12px; color:#aaa; font-weight:bold; letter-spacing:0.5px;">✨ SIMILAR TASTE PROFILE</p>
+                <div>${simList}</div>
+            </div>
+        `;
+    }
+
+    let urlHtml = "";
+    if (c && c.url) {
+        urlHtml = `
+            <div style="margin-top: 15px;">
+                <a href="${c.url}" target="_blank" style="display:block; text-align:center; background:#ffb300; color:#111; text-decoration:none; padding:10px; border-radius:8px; font-weight:bold; font-size:13px; transition:0.3s; box-shadow: 0 4px 10px rgba(255,179,0,0.2);">🔗 View on Cheese.com</a>
+            </div>
+        `;
+    }
+
     body.innerHTML = `
         <h2>${d.name}</h2>
         ${descHtml}
         <hr>
         ${summaryHtml}
+        ${similarCheesesHtml}
+        ${urlHtml}
     `;
 
     const btn = document.getElementById("read-more-btn");
@@ -505,6 +557,28 @@ function showCard(d){
             }
         });
     }
+
+    // Attach listeners for Similar Cheese buttons
+    const simBtns = document.querySelectorAll(".sim-btn");
+    simBtns.forEach(btn => {
+        btn.addEventListener("click", function() {
+            let nName = this.getAttribute("data-name");
+            let tObj = coordsData.find(x => x.name === nName);
+            if (tObj) {
+                history.pushState(null, null, '#' + encodeURIComponent(nName));
+                const targetZoom = 6;
+                const tx = w/2 - tObj.x * targetZoom;
+                const ty = h/2 - tObj.y * targetZoom;
+                svg.transition().duration(1000).call(
+                    zoom.transform,
+                    d3.zoomIdentity.translate(tx, ty).scale(targetZoom)
+                );
+                activeCheese = tObj;
+                showCard(tObj);
+                updateMapStyles();
+            }
+        });
+    });
 }
 </script>
 
